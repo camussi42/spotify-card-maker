@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spotify Cards HD</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+
+
+    <section id="step-search" class="step">
+      <div class="hero">
+        <div class="hero-brand">🎵 Spotify Cards HD</div>
+        <h1>Crie cards lindos de qualquer música</h1>
+        <p class="hero-sub">Digite o nome da música. Buscamos letra, capa e metadados automaticamente.</p>
+        <form id="search-form" autocomplete="off">
+          <div class="search-bar">
+            <input id="search-input" type="search" placeholder="Ex: Blinding Lights, The Weeknd" autocomplete="off" autofocus />
+            <button type="submit" class="primary big">Buscar</button>
+            <div id="suggestions" class="suggestions hidden"></div>
+          </div>
+        </form>
+        <p id="search-hint" class="hint center"></p>
+      </div>
+    </section>
+
+
+    <section id="step-results" class="step hidden">
+      <div class="topbar">
+        <div class="topbar-brand">🎵 Spotify Cards HD</div>
+        <button id="back-search-btn" type="button" class="secondary">← Nova busca</button>
+      </div>
+      <div class="results-head">
+        <h2>Resultados para “<span id="results-query"></span>”</h2>
+        <span class="muted" id="results-count"></span>
+      </div>
+      <div id="results-list" class="results-list"></div>
+    </section>
+
+
+    <section id="step-settings" class="step hidden">
+      <div class="topbar">
+        <div class="topbar-brand">🎵 Spotify Cards HD</div>
+        <div class="topbar-actions">
+          <button id="back-results-btn" type="button" class="secondary">← Trocar música</button>
+        </div>
+      </div>
+
+      <div class="shell">
+        <div class="col inputs-panel">
+
+          <div id="track-meta" class="link-meta">
+            <div class="row">Título <span id="track-title" class="value"></span></div>
+            <div class="row">Artista <span id="track-artists" class="value"></span></div>
+            <div class="row">Álbum <span id="track-album" class="value small"></span></div>
+          </div>
+
+          <div class="panel-block">
+            <div class="panel-title">Capa do álbum</div>
+            <div id="covers-list" class="covers-list"></div>
+            <p class="hint" id="covers-hint">Carregando capas…</p>
+          </div>
+
+          <div id="info" class="info hidden"></div>
+
+          <details id="layout-detail">
+            <summary>Layout</summary>
+            <div class="option-grid">
+              <label class="option-card">
+                <input type="radio" name="layout" value="cover-album" checked />
+                <div class="option-thumb" style="background:#1f2026;"></div>
+                <span>Capa + artista/álbum</span>
+              </label>
+              <label class="option-card">
+                <input type="radio" name="layout" value="full" />
+                <div class="option-thumb" style="background:#2f3037;"></div>
+                <span>Completo (capa + letra)</span>
+              </label>
+            </div>
+          </details>
+
+          <details id="background-detail" open>
+            <summary>Cor do fundo</summary>
+            <div class="segmented">
+              <button type="button" class="seg-btn active" data-bg="auto">Auto da capa</button>
+              <button type="button" class="seg-btn" data-bg="solid">Sólido</button>
+            </div>
+            <input id="color-input" type="color" value="#2F3037" />
+            <label class="toggle-row">
+              <input id="gradient-toggle" type="checkbox" checked />
+              <span>Gradiente no fundo</span>
+            </label>
+            <p class="hint">Auto usa a cor dominante da capa escolhida.</p>
+          </details>
+
+          <details id="lyrics-detail" class="hidden">
+            <summary>Letra</summary>
+            <p class="hint">Selecione a parte da letra ou cole manualmente. Máximo de 5 linhas no card.</p>
+            <p id="lyrics-limit" class="hint warning hidden">Limite de 5 linhas — as primeiras linhas foram removidas para caber.</p>
+            <textarea id="lyrics-manual" placeholder="Colar a letra manualmente..."></textarea>
+            <div class="lyrics-range">
+              <label for="lyrics-start">Início</label>
+              <input id="lyrics-start" type="number" min="1" value="1" />
+              <label for="lyrics-end">Fim</label>
+              <input id="lyrics-end" type="number" min="1" value="0" />
+            </div>
+            <div id="lyrics-list" class="lyrics-list"></div>
+            <button id="lyrics-reset" type="button" class="secondary">Selecionar todas (5 linhas)</button>
+          </details>
+
+          <details id="output-detail">
+            <summary>Formato em HD</summary>
+            <div class="segmented">
+              <button type="button" class="seg-btn active" data-format="portrait">📱 1080×1920</button>
+              <button type="button" class="seg-btn" data-format="square">🟦 1080×1080</button>
+              <button type="button" class="seg-btn" data-format="landscape">🌄 1920×1080</button>
+            </div>
+          </details>
+        </div>
+
+        <div class="col preview-panel">
+          <div class="preview-header">
+            <h2>Preview</h2>
+            <span class="muted" id="preview-size">1080×1920</span>
+          </div>
+          <div class="preview-wrap">
+            <canvas id="card-canvas"></canvas>
+            <div id="status-msg" class="status-msg">Carregando…</div>
+          </div>
+          <div class="preview-actions">
+            <button id="capture-btn" type="button" class="secondary">Atualizar preview</button>
+            <button id="export-btn" type="button" class="primary big">Baixar PNG em HD</button>
+          </div>
+          <p class="hint center">PNG exportado em 2× para máxima nitidez.</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
