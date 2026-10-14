@@ -1,6 +1,35 @@
 
 const BODY_FONT = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
+const MAX_LYRIC_CHARS = 200;
+const MAX_LYRIC_LINES = 8;
+const MAX_FRAME_AREA = 0.5;
+const CHAR_W = 0.55;
+const LINE_H = 1.28;
+const TEXT_SAFETY = 0.9;
+
+function totalChars(lines) {
+  let n = 0;
+  for (const line of lines) n += String(line || "").length;
+  return n;
+}
+
+function fontForChars(chars, area) {
+  if (!chars || area <= 0) return 0;
+  return Math.sqrt((area * TEXT_SAFETY) / (chars * CHAR_W * LINE_H));
+}
+
+function fitTextSize(ctx, text, weight, area, maxPx, minPx, maxLines, maxWidth) {
+  const chars = String(text || "").length;
+  let px = chars ? Math.round(fontForChars(chars, area)) : maxPx;
+  px = Math.max(minPx, Math.min(maxPx, px));
+  for (; px >= minPx; px -= 2) {
+    ctx.font = `${weight} ${px}px ${BODY_FONT}`;
+    if (wrapLines(ctx, [text], maxWidth).length <= maxLines) return px;
+  }
+  return minPx;
+}
+
 function getBaseSize(output) {
   switch (output) {
     case "square":
@@ -34,19 +63,35 @@ function resolveBackground(opt, palette) {
     return { type: "solid", color: base, base };
   }
   const top = opt.background === "solid" ? 0.06 : 0.0;
-  return { type: "gradient", from: shade(base, top), to: shade(base, -0.18), base };
+  const strength = Math.max(0, Math.min(100, opt.gradientIntensity ?? 50)) / 50;
+  return { type: "gradient", from: shade(base, top), to: shade(base, -0.18 * strength), base };
 }
 
 function selectLyricsLines(track, opt) {
   if (opt.lyrics === false) return [];
   if (opt.lyricsManual && opt.lyricsManual.trim()) {
-    return opt.lyricsManual.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const manual = opt.lyricsManual.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    return clipToCharBudget(manual, MAX_LYRIC_CHARS);
   }
   const synced = (track && track.lyrics && track.lyrics.synced) || [];
   if (!synced.length) return [];
   const start = Math.max(1, opt.lyricsStart || 1);
   const end = opt.lyricsEnd > 0 ? Math.min(opt.lyricsEnd, synced.length) : synced.length;
-  return synced.slice(start - 1, end).map((s) => s.line || "").filter(Boolean);
+  const lines = synced.slice(start - 1, end).map((s) => s.line || "").filter(Boolean);
+  return clipToCharBudget(lines, MAX_LYRIC_CHARS);
+}
+
+function clipToCharBudget(lines, maxChars) {
+  let out = lines.slice();
+  let chars = totalChars(out);
+  while (out.length > 1 && (chars > maxChars || out.length > MAX_LYRIC_LINES)) {
+    chars -= out[0].length;
+    out = out.slice(1);
+  }
+  if (out.length && chars > maxChars) {
+    out[0] = `${out[0].slice(0, maxChars - 1)}…`;
+  }
+  return out;
 }
 
 function loadImage(url) {
@@ -73,6 +118,23 @@ function drawBackground(ctx, g) {
   ctx.fillRect(0, 0, size.w, size.h);
 }
 
+function splitLongWord(ctx, word, maxWidth) {
+  // Quebra palavra sem espaços (ex.: "aaaaaaa...") em pedaços que cabem.
+  const parts = [];
+  let current = "";
+  for (const ch of String(word)) {
+    const test = current + ch;
+    if (current && ctx.measureText(test).width > maxWidth) {
+      parts.push(current);
+      current = ch;
+    } else {
+      current = test;
+    }
+  }
+  if (current) parts.push(current);
+  return parts.length ? parts : [word];
+}
+
 function wrapLines(ctx, lines, maxWidth) {
   const out = [];
   for (const raw of lines) {
@@ -87,7 +149,97 @@ function wrapLines(ctx, lines, maxWidth) {
         current = test;
       }
     }
-    if (current) out.push(current);
+    if (current) {
+      // Palavra única maior que a largura: quebra por caractere.
+      if (!current.includes(" ") && ctx.measureText(current).width > maxWidth) {
+        out.push(...splitLongWord(ctx, current, maxWidth));
+      } else {
+        out.push(current);
+      }
+    }
+  }
+  return out;
+}
+
+function drawLyricLine(ctx, line, x, y, maxWidth, fontSize) {
+  // "Justificado" via letter-spacing: distribui a folga entre TODOS os
+  // caracteres, mas SÓ em linhas que já ocupam >= 75% da largura e com teto
+  // baixo (4% da fonte) para nunca ficar esticado.
+  const natural = ctx.measureText(line).width;
+  const extra = maxWidth - natural;
+  if (natural < maxWidth * 0.75 || extra <= 0 || line.length < 12) {
+    ctx.fillText(line, x, y);
+    return;
+  }
+  const prev = ctx.letterSpacing;
+  const ls = Math.min(extra / line.length, fontSize * 0.04);
+  if (ls >= 0.5) {
+    try { ctx.letterSpacing = `${ls.toFixed(2)}px`; } catch { /* canvas antigo */ }
+    ctx.fillText(line, x, y);
+    try { ctx.letterSpacing = prev ?? "0px"; } catch { /* canvas antigo */ }
+    return;
+  }
+  ctx.fillText(line, x, y);
+}
+
+function wrapLyricsLines(ctx, lines, maxWidth) {
+  // Greedy por linha original (preserva as quebras da letra) + rebalanceamento:
+  // se UMA linha crua gerou 2+ linhas, testa todas as divisões em N-1..N partes
+  // e escolhe a que minimiza a maior largura (texto mais "quadrado"), desde que
+  // não aumente o nº de linhas. Ex.: 3 finas -> 2 equilibradas.
+  const out = [];
+  for (const raw of lines) {
+    const words = String(raw).split(/\s+/).filter(Boolean);
+    if (!words.length) continue;
+    const greedy = [];
+    let current = "";
+    for (const word of words) {
+      const test = current ? `${current} ${word}` : word;
+      if (ctx.measureText(test).width > maxWidth && current) {
+        greedy.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    }
+    if (current) greedy.push(current);
+    // Palavra única maior que a largura (ex.: "aaaa..."): quebra por caractere.
+    if (greedy.length === 1 && words.length === 1 && ctx.measureText(greedy[0]).width > maxWidth) {
+      out.push(...splitLongWord(ctx, words[0], maxWidth));
+    } else if (greedy.length >= 2 && words.length > greedy.length) {
+      const widthOf = (a, b) => ctx.measureText(words.slice(a, b).join(" ")).width;
+      let best = null;
+      for (let n = greedy.length - 1; n <= greedy.length; n++) {
+        if (n < 1 || n >= words.length) continue;
+        // DP simples: divide em n partes minimizando a maior largura.
+        const dp = Array.from({ length: words.length + 1 }, () => Array(n + 1).fill(Infinity));
+        const cut = Array.from({ length: words.length + 1 }, () => Array(n + 1).fill(-1));
+        dp[0][0] = 0;
+        for (let p = 1; p <= n; p++) {
+          for (let i = p; i <= words.length; i++) {
+            for (let j = p - 1; j < i; j++) {
+              const w = widthOf(j, i);
+              if (w > maxWidth) continue;
+              const m = Math.max(dp[j][p - 1], w);
+              if (m < dp[i][p]) { dp[i][p] = m; cut[i][p] = j; }
+            }
+          }
+        }
+        if (dp[words.length][n] < Infinity && (!best || dp[words.length][n] < best.max)) {
+          const parts = [];
+          let i = words.length;
+          let p = n;
+          while (p > 0) { const j = cut[i][p]; parts.unshift(words.slice(j, i).join(" ")); i = j; p--; }
+          best = { lines: parts, max: dp[words.length][n] };
+        }
+      }
+      // Só troca se a maior linha ficar >= 10% mais equilibrada.
+      const greedyMax = Math.max(...greedy.map((l) => ctx.measureText(l).width));
+      if (best && best.max < greedyMax * 0.9) out.push(...best.lines);
+      else out.push(...greedy);
+    } else {
+      out.push(...greedy);
+    }
   }
   return out;
 }
@@ -134,10 +286,13 @@ function drawCoverAlbum(ctx, g) {
 
   const sideRatio = 0.05;
   const infoRatio = 0.4;
-  const ratio = 1 + sideRatio * 2 + infoRatio;
+  const widthRatio = 1 + sideRatio * 2;
+  const ratio = widthRatio + infoRatio;
+  const maxCardArea = size.w * size.h * MAX_FRAME_AREA;
+  const areaCap = Math.sqrt((maxCardArea * 0.995) / (widthRatio * ratio));
   const coverSize = Math.max(
     120,
-    Math.floor(Math.min(availW / (1 + sideRatio * 2), availH / ratio))
+    Math.floor(Math.min(availW / widthRatio, availH / ratio, areaCap))
   );
   const sidePad = Math.round(coverSize * sideRatio);
   const infoH = Math.round(coverSize * infoRatio);
@@ -167,44 +322,69 @@ function drawCoverAlbum(ctx, g) {
   const album = sampleAlbum(g.track);
   const tx = coverX;
   const textW = cardW - sidePad * 2;
+  const textTop = coverY + coverSize + Math.round(infoH * 0.4);
+  const textBottom = cardY + cardH - Math.round(sidePad * 0.5);
+  const maxTextH = Math.max(40, textBottom - textTop);
+  const textArea = textW * maxTextH;
+  const gapTitle = Math.round(coverSize * 0.02);
+  const gapAlbum = Math.round(coverSize * 0.015);
+  const showAlbum = Boolean(album && album !== title && album !== artist);
 
-  function fitText(lines, weight, maxPx, startRatio) {
-    for (let px = Math.round(coverSize * startRatio); px >= 18; px -= 2) {
-      ctx.font = `${weight} ${px}px ${BODY_FONT}`;
-      if (wrapLines(ctx, lines, textW).length <= maxPx) return px;
-    }
-    return 18;
+  let titlePx = fitTextSize(ctx, title, 800, textArea * 0.5, Math.round(coverSize * 0.12), 22, 2, textW);
+  let artistPx = fitTextSize(ctx, artist, 600, textArea * 0.3, Math.round(coverSize * 0.052), 18, 2, textW);
+  let albumPx = showAlbum
+    ? fitTextSize(ctx, album, 400, textArea * 0.2, Math.round(coverSize * 0.045), 16, 1, textW)
+    : 0;
+
+  let titleLines = [];
+  let artistLines = [];
+  for (let i = 0; i < 12; i++) {
+    ctx.font = `800 ${titlePx}px ${BODY_FONT}`;
+    titleLines = wrapLines(ctx, [title], textW).slice(0, 2);
+    ctx.font = `600 ${artistPx}px ${BODY_FONT}`;
+    artistLines = wrapLines(ctx, [artist], textW).slice(0, 2);
+    const gaps =
+      (titleLines.length ? gapTitle : 0) + (artistLines.length && showAlbum ? gapAlbum : 0);
+    const blockH =
+      titleLines.length * Math.round(titlePx * 1.12) +
+      artistLines.length * Math.round(artistPx * 1.2) +
+      (albumPx ? Math.round(albumPx * 1.3) : 0) +
+      gaps;
+    if (blockH <= maxTextH) break;
+    titlePx = Math.max(22, titlePx - 2);
+    artistPx = Math.max(18, artistPx - 2);
+    albumPx = albumPx ? Math.max(16, albumPx - 2) : 0;
   }
 
   ctx.save();
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  let y = coverY + coverSize + Math.round(infoH * 0.4);
+  let y = textTop;
+  if (titleLines.length) {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `800 ${titlePx}px ${BODY_FONT}`;
+    const titleLineH = Math.round(titlePx * 1.12);
+    titleLines.forEach((line) => {
+      ctx.fillText(line, tx, y);
+      y += titleLineH;
+    });
+  }
 
-  const titlePx = fitText([title], 800, 2, 0.12);
-  ctx.fillStyle = "#ffffff";
-  ctx.font = `800 ${titlePx}px ${BODY_FONT}`;
-  const titleLines = wrapLines(ctx, [title], textW).slice(0, 2);
-  const titleLineH = Math.round(titlePx * 1.12);
-  titleLines.forEach((line) => {
-    ctx.fillText(line, tx, y);
-    y += titleLineH;
-  });
+  if (artistLines.length) {
+    y += gapTitle;
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.font = `600 ${artistPx}px ${BODY_FONT}`;
+    const artistLineH = Math.round(artistPx * 1.2);
+    artistLines.forEach((line) => {
+      ctx.fillText(line, tx, y);
+      y += artistLineH;
+    });
+  }
 
-  y += Math.round(coverSize * 0.02);
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.font = `600 ${Math.round(coverSize * 0.052)}px ${BODY_FONT}`;
-  const artistLines = wrapLines(ctx, [artist], textW).slice(0, 2);
-  const artistLineH = Math.round(coverSize * 0.062);
-  artistLines.forEach((line) => {
-    ctx.fillText(line, tx, y);
-    y += artistLineH;
-  });
-
-  if (album && album !== title && album !== artist) {
-    y += Math.round(coverSize * 0.015);
+  if (albumPx) {
+    y += gapAlbum;
     ctx.fillStyle = "rgba(255,255,255,0.7)";
-    ctx.font = `400 ${Math.round(coverSize * 0.045)}px ${BODY_FONT}`;
+    ctx.font = `400 ${albumPx}px ${BODY_FONT}`;
     ctx.fillText(album, tx, y);
   }
   ctx.restore();
@@ -219,37 +399,61 @@ function drawFull(ctx, g) {
   const availH = size.h - pad * 2;
 
   const cardW = Math.floor(Math.min(availW, availH * 0.82));
+  const maxCardH = Math.min(availH, Math.floor((size.w * size.h * MAX_FRAME_AREA) / cardW));
   const innerPad = Math.round(cardW * 0.09);
+  const topPad = Math.round(cardW * 0.115);
   const textW = cardW - innerPad * 2;
   const thumb = Math.round(cardW * 0.18);
 
   const title = (g.track && g.track.title) || "";
   const artist = sampleArtist(g.track);
   const album = sampleAlbum(g.track);
-  const lyrics = (g.lyrics || []).slice(0, 5);
+  const lyrics = g.lyrics || [];
 
   const headerH = thumb;
-  const gap = Math.round(cardW * 0.12);
-  const footerH = album ? Math.round(cardW * 0.12) : 0;
-  const bottomPad = Math.round(cardW * 0.1);
+  const gapTop = Math.round(cardW * 0.025);
+  const gapBottom = Math.round(cardW * 0.012);
+  const footerH = album ? Math.round(cardW * 0.05) : 0;
+  const bottomPad = Math.round(cardW * 0.055);
+  const chromeH = topPad + headerH + gapTop + gapBottom + footerH + bottomPad;
+  const lyricAreaH = Math.max(Math.round(cardW * 0.3), maxCardH - chromeH);
+  const lyricArea = textW * lyricAreaH;
 
   let fit = { fontSize: 18, lineH: 24, wrapped: [] };
-  for (let fs = Math.round(cardW * 0.15); fs >= 18; fs -= 2) {
-    ctx.font = `800 ${fs}px ${BODY_FONT}`;
-    const wrapped = lyrics.length ? wrapLines(ctx, lyrics, textW) : [];
-    if (wrapped.length > 5) continue;
-    const lineH = Math.round(fs * 1.3);
-    const blockH = wrapped.length * lineH;
-    const total = innerPad + headerH + gap + blockH + gap + footerH + bottomPad;
-    fit = { fontSize: fs, lineH, wrapped, blockH };
-    if (total <= availH) break;
+  if (lyrics.length) {
+    const startFs = Math.min(
+      Math.round(cardW * 0.15),
+      Math.max(18, Math.round(fontForChars(totalChars(lyrics), lyricArea)))
+    );
+    for (let fs = startFs; fs >= 18; fs -= 2) {
+      ctx.font = `800 ${fs}px ${BODY_FONT}`;
+      const wrapped = wrapLyricsLines(ctx, lyrics, textW);
+      const lineH = Math.round(fs * LINE_H);
+      const blockH = wrapped.length * lineH;
+      fit = { fontSize: fs, lineH, wrapped, blockH };
+      if (chromeH + blockH <= maxCardH && wrapped.length <= MAX_LYRIC_LINES) break;
+    }
   }
 
+  if (fit.wrapped.length) {
+    // Grow-to-fill: cresce a fonte até o bloco ocupar a altura livre,
+    // colando a última linha no álbum (linha vermelha de baixo dos prints).
+    const maxLyricH = Math.max(0, maxCardH - chromeH);
+    const fsCap = Math.round(cardW * 0.2);
+    for (let fs = fit.fontSize + 2; fs <= fsCap; fs += 2) {
+      ctx.font = `800 ${fs}px ${BODY_FONT}`;
+      const wrapped = wrapLyricsLines(ctx, lyrics, textW);
+      if (wrapped.length > MAX_LYRIC_LINES) break;
+      if (wrapped.some((line) => ctx.measureText(line).width > textW)) break;
+      const lineH = Math.round(fs * LINE_H);
+      const blockH = wrapped.length * lineH;
+      if (blockH > maxLyricH) break;
+      fit = { fontSize: fs, lineH, wrapped, blockH };
+    }
+  }
   const blockH = fit.wrapped.length * fit.lineH;
-  const cardH = Math.min(
-    availH,
-    innerPad + headerH + gap + blockH + gap + footerH + bottomPad
-  );
+  const contentH = topPad + headerH + gapTop + blockH + gapBottom + footerH + bottomPad;
+  const cardH = fit.wrapped.length ? maxCardH : Math.min(maxCardH, contentH);
   const cardX = Math.round((size.w - cardW) / 2);
   const cardY = Math.round((size.h - cardH) / 2);
 
@@ -260,63 +464,79 @@ function drawFull(ctx, g) {
   ctx.restore();
 
   const ix = cardX + innerPad;
-  const top = cardY + innerPad;
+  const top = cardY + topPad;
 
   drawRoundedImage(ctx, cover, ix, top, thumb, 12);
 
   const infoX = ix + thumb + Math.round(cardW * 0.05);
+  const infoW = cardX + cardW - innerPad - infoX;
+  const infoArea = infoW * headerH;
   ctx.save();
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillStyle = "#ffffff";
-  ctx.font = `700 ${Math.round(cardW * 0.07)}px ${BODY_FONT}`;
-  const tLines = wrapLines(ctx, [title], cardX + cardW - innerPad - infoX).slice(0, 2);
+  const titlePx = fitTextSize(ctx, title, 700, infoArea * 0.7, Math.round(cardW * 0.07), 22, 2, infoW);
+  ctx.font = `700 ${titlePx}px ${BODY_FONT}`;
+  const tLines = wrapLines(ctx, [title], infoW).slice(0, 2);
   let iy = top + Math.round(thumb * 0.12);
+  const titleLineH = Math.round(titlePx * 1.17);
   tLines.forEach((line) => {
     ctx.fillText(line, infoX, iy);
-    iy += Math.round(cardW * 0.082);
+    iy += titleLineH;
   });
+  const artistText = `Song · ${artist}`;
+  const artistPx = fitTextSize(ctx, artistText, 500, infoArea * 0.3, Math.round(cardW * 0.045), 16, 1, infoW);
   ctx.fillStyle = "rgba(255,255,255,0.62)";
-  ctx.font = `500 ${Math.round(cardW * 0.045)}px ${BODY_FONT}`;
-  ctx.fillText(`Song · ${artist}`, infoX, iy + 2);
+  ctx.font = `500 ${artistPx}px ${BODY_FONT}`;
+  ctx.fillText(artistText, infoX, iy + 2);
   ctx.restore();
 
   if (fit.wrapped.length) {
-    let ly = top + headerH + gap;
+    // Bloco centralizado na zona livre (cabeçalho -> álbum): folgas iguais
+    // em cima e embaixo, com mínimo de respiro.
+    const albumZoneTop = cardY + cardH - bottomPad - footerH;
+    const zoneTop = top + headerH + gapTop;
+    const zoneBottom = albumZoneTop - gapBottom;
+    let ly = zoneTop + Math.max(0, (zoneBottom - zoneTop - blockH) / 2);
+    if (ly < zoneTop) ly = zoneTop;
     ctx.save();
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillStyle = "#ffffff";
     ctx.font = `800 ${fit.fontSize}px ${BODY_FONT}`;
     fit.wrapped.forEach((line) => {
-      ctx.fillText(line, ix, ly);
+      drawLyricLine(ctx, line, ix, ly, textW, fit.fontSize);
       ly += fit.lineH;
     });
     ctx.restore();
   }
 
   if (album) {
+    const albumW = textW;
+    const albumArea = albumW * bottomPad;
+    const albumPx = fitTextSize(ctx, album, 500, albumArea * 2, Math.round(cardW * 0.045), 16, 1, albumW);
     ctx.save();
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = `500 ${Math.round(cardW * 0.045)}px ${BODY_FONT}`;
-    ctx.fillText(album, ix, top + headerH + gap + blockH + gap + footerH);
+    ctx.font = `500 ${albumPx}px ${BODY_FONT}`;
+    ctx.fillText(album, ix, cardY + cardH - bottomPad);
     ctx.restore();
   }
 }
 
-async function renderCard(canvas, track, options, pixelScale = 2) {
+async function renderCard(canvas, track, options, pixelScale = 1) {
   if (!track) return;
-  const size = getBaseSize(options.output);
+  const size = { w: 1080, h: 1920, cover: 700, coverY: 240, textMax: 780, pad: 72 };
   const background = resolveBackground(options, options.palette);
   const lyrics = selectLyricsLines(track, options);
 
   const dpr = Math.max(1, pixelScale);
   canvas.width = Math.round(size.w * dpr);
   canvas.height = Math.round(size.h * dpr);
-  canvas.style.width = `${size.w}px`;
-  canvas.style.height = `${size.h}px`;
+  canvas.style.width = "";
+  canvas.style.height = "";
+  canvas.style.aspectRatio = `${size.w} / ${size.h}`;
 
   const ctx = canvas.getContext("2d", { alpha: false });
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -350,5 +570,5 @@ class CardRenderer {
   }
 }
 
-export { CardRenderer, renderCard };
+export { CardRenderer, renderCard, MAX_LYRIC_CHARS, MAX_LYRIC_LINES };
 

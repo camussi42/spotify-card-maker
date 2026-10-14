@@ -1,4 +1,4 @@
-import { CardRenderer, renderCard } from "./render/card-renderer.js";
+import { CardRenderer, renderCard, MAX_LYRIC_CHARS, MAX_LYRIC_LINES } from "./render/card-renderer.js";
 import { searchSongs, enrichTrack, fetchPalette, proxyUrl } from "./api.js";
 
 const $ = (id) => document.getElementById(id);
@@ -14,14 +14,12 @@ const state = {
   background: "auto",
   color: "#2F3037",
   gradient: true,
-  output: "portrait",
+  gradientIntensity: 50,
   lyricsStart: 1,
   lyricsEnd: 0,
   lyricsManual: "",
   loaded: false,
 };
-
-const MAX_LYRICS_LINES = 5;
 
 const canvas = $("card-canvas");
 const renderer = new CardRenderer(canvas);
@@ -50,9 +48,7 @@ function setSegmentedActive(buttons, activeValue, activeKey, getValue = (btn) =>
   });
 }
 
-function formatSize(output) {
-  if (output === "square") return "1080×1080";
-  if (output === "landscape") return "1920×1080";
+function formatSize() {
   return "1080×1920";
 }
 
@@ -110,31 +106,37 @@ function renderSuggestions(list) {
   highlightActive();
 }
 
+function statusMsg(text) {
+  const el = $("search-hint");
+  if (el) el.textContent = text;
+}
+
 async function runSearch(q) {
   if (searchAbort) searchAbort.abort();
   const controller = new AbortController();
   searchAbort = controller;
-  $("search-hint").textContent = "Buscando…";
+  statusMsg("Buscando…");
   try {
     const data = await searchSongs(q, 8, controller.signal);
     state.results = data.results || [];
-    $("search-hint").textContent = "";
+    statusMsg("");
     renderSuggestions(state.results);
   } catch (err) {
     if (err.name !== "AbortError") {
-      $("search-hint").textContent = err.message || "Falha na busca.";
+      statusMsg(err.message || "Falha na busca.");
       hideSuggestions();
     }
   }
 }
 
 function onSearchInput(e) {
-  const q = e.target.value.trim();
+  const input = e.target;
+  const q = input.value.trim();
   clearTimeout(searchTimer);
   if (searchAbort && !q) searchAbort.abort();
   if (!q) {
     hideSuggestions();
-    $("search-hint").textContent = "";
+    statusMsg("");
     return;
   }
   searchTimer = setTimeout(() => runSearch(q), 300);
@@ -157,8 +159,8 @@ function onSearchKeydown(e) {
     e.preventDefault();
     if (visible && activeIndex >= 0 && state.results[activeIndex]) {
       chooseTrack(state.results[activeIndex]);
-    } else if (state.results[0]) {
-      chooseTrack(state.results[0]);
+    } else {
+      onSearchSubmit(e);
     }
   } else if (e.key === "Escape") {
     hideSuggestions();
@@ -262,27 +264,39 @@ function updateLyricsVisibility() {
 function clampLyrics() {
   const synced = (state.track?.lyrics?.synced || []);
   const total = synced.length;
-  const warn = $("lyrics-limit");
   if (!total || state.lyricsManual.trim()) {
-    if (warn) warn.classList.add("hidden");
     return;
   }
+  const charsIn = (from, to) => {
+    let n = 0;
+    for (let i = from; i <= to; i++) n += (synced[i - 1]?.line || "").length;
+    return n;
+  };
   let start = Math.max(1, Math.min(state.lyricsStart || 1, total));
   const explicitEnd = state.lyricsEnd > 0;
-  let end = explicitEnd
-    ? Math.min(state.lyricsEnd, total)
-    : Math.min(total, start + MAX_LYRICS_LINES - 1);
-  if (end < start) start = Math.max(1, end - MAX_LYRICS_LINES + 1);
+  let end = explicitEnd ? Math.min(state.lyricsEnd, total) : total;
+  if (end < start) start = Math.max(1, end);
 
-  let over = false;
-  if (end - start + 1 > MAX_LYRICS_LINES) {
-    start = Math.max(1, end - MAX_LYRICS_LINES + 1);
-    over = true;
+  if (!explicitEnd) {
+    end = start;
+    while (
+      end < total &&
+      end - start + 1 < MAX_LYRIC_LINES &&
+      charsIn(start, end + 1) <= MAX_LYRIC_CHARS
+    ) {
+      end += 1;
+    }
+  }
+
+  while (
+    start < end &&
+    (charsIn(start, end) > MAX_LYRIC_CHARS || end - start + 1 > MAX_LYRIC_LINES)
+  ) {
+    start += 1;
   }
 
   state.lyricsStart = start;
   state.lyricsEnd = end;
-  if (warn) warn.classList.toggle("hidden", !over);
   const startInput = $("lyrics-start");
   const endInput = $("lyrics-end");
   if (startInput) startInput.value = start;
@@ -297,7 +311,6 @@ function updateLyricsControls() {
   if (state.lyricsManual.trim()) {
     list.innerHTML = "";
     list.classList.add("hidden");
-    $("lyrics-limit").classList.add("hidden");
     return;
   }
 
@@ -308,7 +321,6 @@ function updateLyricsControls() {
     list.innerHTML = "<span class='hint'>Nenhuma letra encontrada. Cole manualmente acima se quiser.</span>";
     start.disabled = true;
     end.disabled = true;
-    $("lyrics-limit").classList.add("hidden");
     return;
   }
 
@@ -349,11 +361,11 @@ function buildRendererOptions() {
     background: state.background,
     color: state.color,
     gradient: state.gradient,
+    gradientIntensity: state.gradientIntensity,
     palette: state.coverPalette,
     lyricsStart: state.lyricsStart,
     lyricsEnd: state.lyricsEnd,
     lyricsManual: state.lyricsManual,
-    output: state.output,
     lyrics: lyricsEnabled,
   };
 }
@@ -362,7 +374,7 @@ async function refresh() {
   if (!state.loaded || !state.track) return;
   $("status-msg").classList.add("hidden");
   await renderCard(canvas, state.track, buildRendererOptions());
-  $("preview-size").textContent = formatSize(state.output);
+  $("preview-size").textContent = formatSize();
 }
 
 async function exportPNG() {
@@ -441,17 +453,13 @@ function bindEvents() {
 
   $("gradient-toggle").addEventListener("change", (e) => {
     state.gradient = e.target.checked;
+    $("gradient-intensity").parentElement.classList.toggle("hidden", !state.gradient);
     refresh();
   });
 
-  const formatBtns = getSegmentedButtons($("output-detail"));
-  setSegmentedActive(formatBtns, state.output, "output", (btn) => btn.dataset.format);
-  formatBtns.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.output = btn.dataset.format;
-      setSegmentedActive(formatBtns, state.output, "output", (b) => b.dataset.format);
-      refresh();
-    });
+  $("gradient-intensity").addEventListener("input", (e) => {
+    state.gradientIntensity = Number(e.target.value);
+    refresh();
   });
 
   $("lyrics-start").addEventListener("input", (e) => {
@@ -480,7 +488,6 @@ function bindEvents() {
   });
 
   $("export-btn").addEventListener("click", exportPNG);
-  $("capture-btn").addEventListener("click", refresh);
 }
 
 bindEvents();
