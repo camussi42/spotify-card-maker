@@ -15,11 +15,12 @@ Requisitos: Python 3 + Node.js. Dependências do servidor em
 
 - **Capa + artista**: capa em destaque com moldura escura e, abaixo, o nome da
   música (destaque), da banda e do álbum.
-- **Completo (capa + letra)**: card com miniatura, título, banda e até 5 linhas
-  da letra em destaque; o tamanho do card se ajusta ao conteúdo.
+- **Completo (capa + letra)**: card com miniatura, título, banda e até 8 linhas
+  ou 200 caracteres da letra em destaque; o tamanho do card e das fontes se
+  ajustam ao conteúdo.
 - **Auto da capa / cor sólida** para o fundo, com opção de ligar/desligar o
   gradiente.
-- Formatos de saída: retrato 1080×1920, quadrado 1080×1080 e paisagem 1920×1080.
+- Formato de saída: vertical Full HD (1080×1920).
 
 ## Estrutura
 

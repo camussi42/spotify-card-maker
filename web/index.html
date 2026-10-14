@@ -12,17 +12,13 @@
 
     <section id="step-search" class="step">
       <div class="hero">
-        <div class="hero-brand">🎵 Spotify Cards HD</div>
-        <h1>Crie cards lindos de qualquer música</h1>
-        <p class="hero-sub">Digite o nome da música. Buscamos letra, capa e metadados automaticamente.</p>
+        <img class="hero-logo" src="/inicio.png" alt="Spotify Cards HD" />
         <form id="search-form" autocomplete="off">
           <div class="search-bar">
-            <input id="search-input" type="search" placeholder="Ex: Blinding Lights, The Weeknd" autocomplete="off" autofocus />
-            <button type="submit" class="primary big">Buscar</button>
+            <input id="search-input" type="search" placeholder="nome da musica" autocomplete="off" autofocus />
             <div id="suggestions" class="suggestions hidden"></div>
           </div>
         </form>
-        <p id="search-hint" class="hint center"></p>
       </div>
     </section>
 
@@ -92,13 +88,16 @@
               <input id="gradient-toggle" type="checkbox" checked />
               <span>Gradiente no fundo</span>
             </label>
+            <label class="slider-row" for="gradient-intensity">
+              <span>Intensidade do gradiente</span>
+              <input id="gradient-intensity" type="range" min="0" max="100" value="50" />
+            </label>
             <p class="hint">Auto usa a cor dominante da capa escolhida.</p>
           </details>
 
           <details id="lyrics-detail" class="hidden">
             <summary>Letra</summary>
-            <p class="hint">Selecione a parte da letra ou cole manualmente. Máximo de 5 linhas no card.</p>
-            <p id="lyrics-limit" class="hint warning hidden">Limite de 5 linhas — as primeiras linhas foram removidas para caber.</p>
+            <p class="hint">Selecione a parte da letra ou cole manualmente.</p>
             <textarea id="lyrics-manual" placeholder="Colar a letra manualmente..."></textarea>
             <div class="lyrics-range">
               <label for="lyrics-start">Início</label>
@@ -107,16 +106,7 @@
               <input id="lyrics-end" type="number" min="1" value="0" />
             </div>
             <div id="lyrics-list" class="lyrics-list"></div>
-            <button id="lyrics-reset" type="button" class="secondary">Selecionar todas (5 linhas)</button>
-          </details>
-
-          <details id="output-detail">
-            <summary>Formato em HD</summary>
-            <div class="segmented">
-              <button type="button" class="seg-btn active" data-format="portrait">📱 1080×1920</button>
-              <button type="button" class="seg-btn" data-format="square">🟦 1080×1080</button>
-              <button type="button" class="seg-btn" data-format="landscape">🌄 1920×1080</button>
-            </div>
+            <button id="lyrics-reset" type="button" class="secondary">Selecionar tudo</button>
           </details>
         </div>
 
@@ -130,10 +120,9 @@
             <div id="status-msg" class="status-msg">Carregando…</div>
           </div>
           <div class="preview-actions">
-            <button id="capture-btn" type="button" class="secondary">Atualizar preview</button>
-            <button id="export-btn" type="button" class="primary big">Baixar PNG em HD</button>
+            <button id="export-btn" type="button" class="primary big">Baixar PNG Full HD</button>
           </div>
-          <p class="hint center">PNG exportado em 2× para máxima nitidez.</p>
+          <p class="hint center">PNG vertical Full HD (1080×1920).</p>
         </div>
       </div>
     </section>
