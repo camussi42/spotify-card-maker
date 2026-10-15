@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Spotify Cards HD</title>
+  <title>Spotify Custom Cards</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
@@ -12,9 +12,10 @@
 
     <section id="step-search" class="step">
       <div class="hero">
-        <img class="hero-logo" src="/inicio.png" alt="Spotify Cards HD" />
+        <img class="hero-logo" src="/inicio.png" alt="Spotify Custom Cards" />
         <form id="search-form" autocomplete="off">
           <div class="search-bar">
+            <label class="sr-only" for="search-input">Nome da música</label>
             <input id="search-input" type="search" placeholder="nome da musica" autocomplete="off" autofocus />
             <div id="suggestions" class="suggestions hidden"></div>
           </div>
@@ -25,7 +26,7 @@
 
     <section id="step-results" class="step hidden">
       <div class="topbar">
-        <div class="topbar-brand">🎵 Spotify Cards HD</div>
+        <div class="topbar-brand">🎵 Spotify Custom Cards</div>
         <button id="back-search-btn" type="button" class="secondary">← Nova busca</button>
       </div>
       <div class="results-head">
@@ -38,7 +39,7 @@
 
     <section id="step-settings" class="step hidden">
       <div class="topbar">
-        <div class="topbar-brand">🎵 Spotify Cards HD</div>
+        <div class="topbar-brand">🎵 Spotify Custom Cards</div>
         <div class="topbar-actions">
           <button id="back-results-btn" type="button" class="secondary">← Trocar música</button>
         </div>

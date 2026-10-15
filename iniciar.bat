@@ -3,6 +3,29 @@ chcp 65001 >nul
 title Spotify Cards HD - Servidor
 cd /d "%~dp0"
 
+echo                                .....
+echo                               C C  /
+echo                              /^<   /
+echo               ___ __________/_#__=o
+echo              /(- /(\_\________   \
+echo              \ ^) \ ^)_      \o     \
+echo              /^|\ /^|\       ^|'     ^|
+echo                            ^|     _^|
+echo                            /o   __\
+echo                           / '     ^|
+echo                          / /      ^|
+echo                         /_/\______^|
+echo                        ^(   _(    ^<
+echo                         \    \    \
+echo                          \    \    ^|
+echo                           \____\____\
+echo                           ____\_\__\_\
+echo                         /`   /`     o\
+echo                         ^|___ ^|_______^|.. .
+echo.
+echo iniciando....
+echo.
+
 echo ============================================
 echo   Spotify Cards HD
 echo ============================================
